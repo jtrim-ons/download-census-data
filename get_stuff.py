@@ -114,6 +114,5 @@ for ds in datasets_uv_ks_2001:
 
     cur.executemany(sql, db_lines)
     con.commit()
-    sys.exit(0)
 
 con.close()
