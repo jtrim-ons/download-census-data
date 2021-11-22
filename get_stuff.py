@@ -7,12 +7,6 @@ import json
 import sqlite3
 import sys
 
-from census.calcs import add_calcs
-from census.export import export_data, export_csv
-from census.getsources import get_sources
-from census.aggregation import group_data, combine_data
-from census.pivot import pivot_data
-from census.proxy import add_proxy_data
 from census.cache import get_page
 
 api_codelist_url = "https://www.nomisweb.co.uk/api/v01/dataset/{DATASET}/{CELL}.def.sdmx.json"
