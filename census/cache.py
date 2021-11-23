@@ -28,7 +28,13 @@ def get_page(url):
     con = sqlite3.connect('cache/cache.db')
     page = _get_page_from_cache(con, url)
     if page is None:
-        page = requests.get(url).text
+        response = requests.get(url)
+        if response.status_code != requests.codes.ok:
+            raise ValueError('Unexpected status code from Nomis API: {} for URL {}'.format(
+            response.status_code,
+            url
+        ))
+        page = response.text
         con.execute('''CREATE TABLE IF NOT EXISTS cache
                    (url text, page blob)''')
         # Store URL and compressed page in database
