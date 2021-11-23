@@ -10,7 +10,7 @@ import sys
 from census.cache import get_page
 
 api_codelist_url = "https://www.nomisweb.co.uk/api/v01/dataset/{DATASET}/{CELL}.def.sdmx.json"
-api_data_url = "https://www.nomisweb.co.uk/api/v01/dataset/{DATASET}.data.csv?date=latest&geography={GEO_TYPES}&{CELL}={CELLS}&measures={MEASURES}&select=date_name,geography_name,geography_code,geography_type,geography_typecode,{CELL},{CELL}_name,{CELL}_type,measures,measures_name,obs_value,obs_status_name?uid={UID}"
+api_data_url = "https://www.nomisweb.co.uk/api/v01/dataset/{DATASET}.data.csv?date=latest&geography={GEO_TYPES}&{CELL}={CELLS}&measures={MEASURES}&select=date_name,geography_name,geography_code,geography_typecode,{CELL},{CELL}_type,measures,measures_name,obs_value,obs_status_name?uid={UID}"
 geo_types_2011 = "TYPE464,TYPE480,TYPE499"
 record_limit = 100000
 
@@ -49,7 +49,7 @@ def get_cell_dim(dims):
 def get_codes_from_nomis_api(table_code, codelist_name):
     url = api_codelist_url.format(DATASET=table_code, CELL=codelist_name)
     codes = [
-        code["value"] for code in
+        code for code in
         json.loads(get_page(url))["structure"]["codelists"]["codelist"][0]["code"]
     ]
     return codes
@@ -58,20 +58,17 @@ def get_csvs_and_add_to_db(year, table_code, table_name, cell_dim, cell_codes, m
     sql = '''INSERT OR IGNORE INTO census_values (
         year,
         table_id,
-        table_name,
         date_name,
         geography_name,
         geography_code,
-        geography_type,
         geography_typecode,
         cell,
-        cell_name,
         cell_type,
         measures,
         measures_name,
         obs_value,
         obs_status_name
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'''
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'''
     record_offset = 0
     while True:
         url = api_data_url.format(
@@ -88,12 +85,15 @@ def get_csvs_and_add_to_db(year, table_code, table_name, cell_dim, cell_codes, m
         for i, line in enumerate(csv.reader(lines)):
             if i == 0:
                 continue
-            db_line = [year, table_code, table_name] + line
+            db_line = [year, table_code] + line
             db_line = [None if item == "" else item for item in db_line]
             db_lines.append(db_line)
         cur.executemany(sql, db_lines)
-        if i == 0:
-            break   # No records returned in this CSV, so we're done.
+        if len(db_lines) < record_limit + 1:
+            # The header plus the data rows were fewer than the maximum number.
+            # Hopefully it's safe to assume there are no more rows to fetch.
+            # TODO maybe use the extra column that says how many records there are.
+            break
         record_offset += record_limit
     con.commit()
 
@@ -107,16 +107,26 @@ def add_dataset_to_db(ds, year, cur, con):
     table_code = ds["id"]
     print(table_code)
     table_name = ds["name"]["value"]
+    sql = '''INSERT OR IGNORE INTO census_tables (table_id, table_name,year)
+             VALUES (?,?,?)'''
+    cur.execute(sql, (table_code, table_name, year))
+    con.commit()
     dims = [d["conceptref"] for d in ds["components"]["dimension"]]
     if not check_expected_dimensions(dims):
         print("Skipping {}; unexpected dimensions.".format(table_name))
         return
     cell_dim = get_cell_dim(dims)
 
-    measure_codes = ",".join(str(c) for c in get_codes_from_nomis_api(table_code, 'MEASURES'))
-    cell_codes = get_codes_from_nomis_api(table_code, cell_dim)
+    measure_codes = ",".join(str(c["value"]) for c in get_codes_from_nomis_api(table_code, 'MEASURES'))
+    cells = get_codes_from_nomis_api(table_code, cell_dim)
+    sql = '''INSERT OR IGNORE INTO census_cells (table_id,cell_id,cell_name)
+             VALUES (?,?,?)'''
+    for cell in cells:
+        cur.execute(sql, (table_code, cell["value"], cell["description"]["value"]))
+    con.commit()
+    cell_codes = [c["value"] for c in cells]
 
-    for cell_codes_chunk in chunks(cell_codes, 10):
+    for cell_codes_chunk in chunks(cell_codes, 20):
         get_csvs_and_add_to_db(year, table_code, table_name, cell_dim, ",".join(str(c) for c in cell_codes_chunk), measure_codes, cur, con)
 
 def main():
@@ -133,11 +143,11 @@ def main():
     for ds in datasets_uv_ks_2001:
         add_dataset_to_db(ds, 2001, cur, con)
 
-    dataset_lbs_1991 = [
+    dataset_sas_1991 = [
         ds for ds in filtered_by_year(keyfamilies, 1991)
-        if ds["name"]["value"] == "1991 census - local base statistics"
+        if ds["name"]["value"] == "1991 census - small area statistics"
     ][0]
-    add_dataset_to_db(dataset_lbs_1991, 1991, cur, con)
+    add_dataset_to_db(dataset_sas_1991, 1991, cur, con)
 
     con.close()
 
