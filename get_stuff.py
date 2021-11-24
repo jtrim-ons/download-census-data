@@ -34,16 +34,16 @@ def filtered_by_year(keyfamilies, year):
     return [f for f in keyfamilies if is_correct_year(f, year)]
 
 def check_expected_dimensions(dims):
-    if len(dims) != 4:
-        return False
+    if len(dims) < 4: return False
+    if len(dims) > 5: return False
     for dim in ['GEOGRAPHY', 'MEASURES', 'FREQ']:
         if dim not in dims:
             return False
-    return True
+    return len(dims) == 4 or 'RURAL_URBAN' in dims
 
 def get_cell_dim(dims):
     for dim in dims:
-        if dim not in ['GEOGRAPHY', 'MEASURES', 'FREQ']:
+        if dim not in ['GEOGRAPHY', 'MEASURES', 'FREQ', 'RURAL_URBAN']:
             return dim
 
 def get_codes_from_nomis_api(table_code, codelist_name):
@@ -79,6 +79,8 @@ def get_csvs_and_add_to_db(year, table_code, table_name, cell_dim, cell_codes, m
             MEASURES=measure_codes,
             UID=os.environ['NOMIS_UID']
         ) + '&RecordLimit={}&RecordOffset={}'.format(record_limit, record_offset)
+        if year == 2011:
+            url += "&rural_urban=0"
         dataset_csv = get_page(url)
         lines = dataset_csv.splitlines()
         db_lines = []
@@ -114,6 +116,7 @@ def add_dataset_to_db(ds, year, cur, con):
     dims = [d["conceptref"] for d in ds["components"]["dimension"]]
     if not check_expected_dimensions(dims):
         print("Skipping {}; unexpected dimensions.".format(table_name))
+        print("  ", dims);
         return
     cell_dim = get_cell_dim(dims)
 
@@ -132,6 +135,16 @@ def add_dataset_to_db(ds, year, cur, con):
 def main():
     con = sqlite3.connect('big-census.db')
     cur = con.cursor()
+
+    datasets_uv_ks_2011 = [
+        ds for ds in filtered_by_year(keyfamilies, 2011)
+        if (
+            ds["name"]["value"][:2] == "KS" or
+            ds["name"]["value"][:2] == "QS"
+        )
+    ]
+    for ds in datasets_uv_ks_2011:
+        add_dataset_to_db(ds, 2011, cur, con)
 
     datasets_uv_ks_2001 = [
         ds for ds in filtered_by_year(keyfamilies, 2001)
