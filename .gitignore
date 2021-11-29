@@ -1,0 +1,7 @@
+census/__pycache__/
+processed/
+final/
+cache/
+lookup/
+NOMIS_API_KEY
+raw/
